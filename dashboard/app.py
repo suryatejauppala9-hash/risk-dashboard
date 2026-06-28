@@ -27,7 +27,29 @@ from dashboard.charts import (
     chart_monthly_returns_heatmap,
     chart_rolling_annual_return,
 )
-
+from analytics.volatility import (
+    rolling_volatility,
+    sortino_ratio,
+    rolling_sharpe,
+)
+from analytics.drawdown import (
+    compute_drawdown_series,
+    max_drawdown,
+    drawdown_details,
+    avg_drawdown_duration,
+)
+from analytics.beta import (
+    compute_beta,
+    compute_alpha,
+    compute_correlation,
+    r_squared,
+)
+from dashboard.charts import (
+    chart_drawdown,
+    chart_rolling_volatility,
+    chart_rolling_sharpe,
+    chart_rolling_beta,
+)
 
 st.set_page_config(
     page_title="Risk Dashboard",
@@ -244,8 +266,8 @@ st.divider()
 
 
 #tabs
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Performance", "Distribution", "Calendar", "Holdings"]
+tab1, tab2, tab3, tab4,tab5 = st.tabs(
+    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics"]
 )
 
 
@@ -351,3 +373,102 @@ with tab4:
     st.divider()
     st.plotly_chart(chart_normalised_prices(prices), use_container_width=True)
 
+# tab 5 risk metrics
+
+with tab5:
+    mdd=max_drawdown(port_ret)
+    avg_dd_dur=avg_drawdown_duration(port_ret)
+    dd_table=drawdown_details(port_ret)
+
+    has_bench=bench_cum is not None and bench_ticker in prices_all.columns
+
+    if has_bench:
+        mkt_ret=prices_all[[bench_ticker]].pct_change().dropna()[bench_ticker]
+        beta_val=compute_beta(port_ret,mkt_ret)
+        alpha_val=compute_alpha(port_ret,mkt_ret)
+        corr_val=compute_correlation(port_ret,mkt_ret)
+        r2_val=r_squared(port_ret,mkt_ret)
+    else:
+        beta_val=alpha_val=corr_val=r2_val=None
+
+    sortino_val=sortino_ratio(port_ret,risk_free_rate=risk_free)
+    st.markdown("Drawdown Analysis")
+
+    r1c1,r1c2,r1c3,r1c4=st.columns(4)
+    r1c1.metric("Max drawdown",      f"-{mdd*100:.2f}%")
+    r1c2.metric("Avg drawdown dur.", f"{avg_dd_dur:.0f} days")
+    r1c3.metric("Sortino ratio", f"{sortino_val:.2f}",
+            help="Like Sharpe but only penalises negative returns.")
+    r1c4.metric("Calmar ratio",
+                f"{(ann_ret / mdd):.2f}" if mdd > 0 else "N/A",
+                help="Annual return / Max drawdown. Higher is better.")
+    
+    st.plotly_chart(chart_drawdown(port_ret),use_container_width=True)
+
+    if not dd_table.empty:
+        st.markdown("**Top 5 drawdown periods**")
+        display_cols=["Peak","Trough","Recovery","Drawdown","Peak-to-Trough (d)","Recovery (d)"]
+        st.dataframe(
+            dd_table[display_cols],
+            use_container_width=True,
+        )
+    else:
+        st.info("No completed drawdown")
+
+    st.divider()
+    st.markdown("### Volatality")
+    col1,col2=st.columns(2)
+    with col1:
+        st.plotly_chart(chart_rolling_volatility(port_ret),use_container_width=True)
+    with col2:
+        st.plotly_chart(chart_rolling_sharpe(port_ret,risk_free),use_container_width=True)
+
+    st.divider()
+
+    if has_bench:
+        st.markdown(f"### Market Exposure vs {bench_label}")
+
+        r2c1,r2c2,r2c3,r2c4=st.columns(4)
+        r2c1.metric("Beta",
+                    f"{beta_val:.2f}",
+                    help="1.0 = moves with market exactly. >1 = amplified. <1 = dampened.")
+        r2c2.metric("Jensen's Alpha",
+                    f"{alpha_val*100:.2f}%",
+                    help="Return above what beta alone predicts. Positive = genuine outperformance.")
+        r2c3.metric("Correlation",
+                    f"{corr_val:.2f}",
+                    help="How closely the portfolio tracks the benchmark. 1.0 = perfect tracking.")
+        r2c4.metric("R-squared",
+                    f"{r2_val:.2f}",
+                    help="Fraction of portfolio variance explained by the market. 0.85 means 85%.")
+
+        st.plotly_chart(
+            chart_rolling_beta(port_ret, mkt_ret, bench_label),
+            use_container_width=True,
+        )
+
+        # Interpretation callouts
+        if beta_val > 1.2:
+            st.warning(
+                f"Beta of {beta_val:.2f} — this portfolio is significantly more volatile "
+                f"than {bench_label}. In a 10% market drop, expect roughly a "
+                f"{beta_val*10:.0f}% portfolio drop."
+            )
+        elif beta_val < 0.7:
+            st.info(
+                f"Beta of {beta_val:.2f} — low market sensitivity. "
+                f"The portfolio moves less than the benchmark in both directions."
+            )
+
+        if alpha_val is not None and alpha_val > 0.02:
+            st.success(
+                f"Jensen's Alpha of {alpha_val*100:.2f}% — the portfolio generated "
+                f"meaningful return above what its market exposure predicts."
+            )
+        elif alpha_val is not None and alpha_val < -0.02:
+            st.warning(
+                f"Negative alpha of {alpha_val*100:.2f}% — the portfolio underperformed "
+                f"what its beta exposure would predict. Consider rebalancing."
+            )
+    else:
+        st.info("Select a benchmark in the sidebar to see beta, alpha, and correlation metrics.")

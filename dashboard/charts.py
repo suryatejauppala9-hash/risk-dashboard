@@ -319,3 +319,129 @@ def chart_rolling_annual_return(port_returns: pd.Series) -> go.Figure:
     fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
     return fig
 
+# phase 2
+
+def chart_drawdown(port_returns: pd.Series) -> go.Figure:
+    from analytics.drawdown import compute_drawdown_series
+    dd = compute_drawdown_series(port_returns) * 100
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dd.index,
+        y=dd.values,
+        mode="lines",
+        name="Drawdown",
+        line=dict(color=NEGATIVE_COLOR, width=1.5),
+        fill="tozeroy",
+        fillcolor="rgba(239,68,68,0.15)",
+        hovertemplate="%{x|%b %d, %Y}<br>%{y:.2f}%<extra>Drawdown</extra>",
+    ))
+    fig.add_hline(y=0, line_width=0.8, line_color="rgba(128,128,128,0.3)")
+
+    max_dd   = dd.min()
+    max_date = dd.idxmin()
+    fig.add_annotation(
+        x=max_date, y=max_dd,
+        text=f"Max: {max_dd:.1f}%",
+        showarrow=True, arrowhead=2,
+        arrowcolor=NEGATIVE_COLOR,
+        font=dict(color=NEGATIVE_COLOR, size=11),
+        bgcolor="rgba(0,0,0,0.6)",
+        borderpad=4,
+    )
+
+    fig.update_layout(**_layout("Drawdown", 300))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
+    return fig
+
+
+def chart_rolling_volatility(port_returns: pd.Series) -> go.Figure:
+    from analytics.volatility import rolling_volatility
+
+    vol_30  = rolling_volatility(port_returns, 30) * 100
+    vol_90  = rolling_volatility(port_returns, 90) * 100
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=vol_30.index, y=vol_30.values,
+        mode="lines", name="30d vol",
+        line=dict(color=PORTFOLIO_COLOR, width=1.5),
+        hovertemplate="%{y:.2f}%<extra>30d vol</extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=vol_90.index, y=vol_90.values,
+        mode="lines", name="90d vol",
+        line=dict(color=BENCHMARK_COLOR, width=2, dash="dot"),
+        hovertemplate="%{y:.2f}%<extra>90d vol</extra>",
+    ))
+
+    fig.update_layout(**_layout("Rolling volatility (annualised)", 280))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
+    return fig
+
+
+def chart_rolling_sharpe(
+    port_returns: pd.Series,
+    risk_free_rate: float = 0.05,
+) -> go.Figure:
+    from analytics.volatility import rolling_sharpe
+
+    rs = rolling_sharpe(port_returns, window=90, risk_free_rate=risk_free_rate)
+
+    colors = [POSITIVE_COLOR if v >= 0 else NEGATIVE_COLOR
+              for v in rs.fillna(0)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=rs.index, y=rs.values,
+        marker_color=colors,
+        marker_line_width=0,
+        name="Rolling Sharpe (90d)",
+        opacity=0.85,
+        hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra></extra>",
+    ))
+    fig.add_hline(y=1, line_width=1, line_dash="dot",
+                  line_color="rgba(255,255,255,0.3)",
+                  annotation_text="Sharpe = 1",
+                  annotation_position="right",
+                  annotation_font=dict(size=10, color="rgba(255,255,255,0.5)"))
+    fig.add_hline(y=0, line_width=0.8, line_color="rgba(128,128,128,0.4)")
+
+    fig.update_layout(**_layout("Rolling Sharpe ratio (90-day)", 280))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False)
+    return fig
+
+
+def chart_rolling_beta(
+    port_returns: pd.Series,
+    market_returns: pd.Series,
+    bench_label: str = "Benchmark",
+) -> go.Figure:
+    """90-day rolling beta vs benchmark."""
+    from analytics.beta import rolling_beta
+
+    rb = rolling_beta(port_returns, market_returns, window=90)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=rb.index, y=rb.values,
+        mode="lines", name=f"Beta vs {bench_label}",
+        line=dict(color=PORTFOLIO_COLOR, width=2),
+        fill="tozeroy",
+        fillcolor="rgba(99,102,241,0.08)",
+        hovertemplate="%{x|%b %Y}<br>Beta: %{y:.2f}<extra></extra>",
+    ))
+    fig.add_hline(y=1, line_width=1, line_dash="dot",
+                  line_color="rgba(255,255,255,0.25)",
+                  annotation_text="Beta = 1 (market)",
+                  annotation_position="right",
+                  annotation_font=dict(size=10, color="rgba(255,255,255,0.4)"))
+    fig.add_hline(y=0, line_width=0.8, line_color="rgba(128,128,128,0.3)")
+
+    fig.update_layout(**_layout(f"Rolling beta vs {bench_label} (90-day)", 280))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False)
+    return fig
