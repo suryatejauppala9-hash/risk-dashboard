@@ -8,7 +8,7 @@ def fetch_prices(tickers: list[str],period: str ="5y") ->pd.DataFrame:
     if not tickers:
         raise ValueError("No tickers given")
     
-    raw=yf.download(tickers,period=period,auto_adjust=True, progress=false,threads=True)
+    raw=yf.download(tickers,period=period,auto_adjust=True, progress=False,threads=True)
 
     if raw.empty:
         raise ValueError(f"No data for {tickers},Check again")
@@ -65,10 +65,10 @@ def portfolio_summary(
     return{
         "total_return": float(cum.iloc[-1]-1),
         "annualised_return": annualised_return(port_returns),
-        "annulaised_vol": annualised_volatility(port_returns),
+        "annualised_vol": annualised_volatility(port_returns),
         "sharpe": sharpe_ratio(port_returns,risk_free_rate),
         "best_day": float(port_returns.max()),
-        "worse_day": float(port_returns.min()),
+        "worst_day": float(port_returns.min()),
         "positive_days": float((port_returns>0).mean()),
         "start_date": str(port_returns.index[0].date()),
         "end_date": str(port_returns.index[-1].date()),
