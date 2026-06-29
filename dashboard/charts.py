@@ -445,3 +445,204 @@ def chart_rolling_beta(
     fig.update_xaxes(showgrid=False, zeroline=False)
     fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False)
     return fig
+
+# phase 3 charts
+
+def chart_var_comparison(var_dict: dict, initial: float = 10_000) -> go.Figure:
+    methods     = ["Historical", "Parametric", "Monte Carlo"]
+    var_vals    = [
+        var_dict["historical_var"] * 100,
+        var_dict["parametric_var"] * 100,
+        var_dict["montecarlo_var"] * 100,
+    ]
+    cvar_vals   = [
+        var_dict["historical_cvar"] * 100,
+        var_dict["parametric_cvar"] * 100,
+        var_dict["montecarlo_cvar"] * 100,
+    ]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        name="VaR",
+        x=methods,
+        y=var_vals,
+        marker_color=NEGATIVE_COLOR,
+        opacity=0.85,
+        text=[f"{v:.2f}%" for v in var_vals],
+        textposition="outside",
+        hovertemplate="%{x}<br>VaR: %{y:.3f}%<extra></extra>",
+    ))
+
+    fig.add_trace(go.Bar(
+        name="CVaR (Expected Shortfall)",
+        x=methods,
+        y=cvar_vals,
+        marker_color="#f97316",
+        opacity=0.85,
+        text=[f"{v:.2f}%" for v in cvar_vals],
+        textposition="outside",
+        hovertemplate="%{x}<br>CVaR: %{y:.3f}%<extra></extra>",
+    ))
+
+    confidence_pct = int(var_dict["confidence"] * 100)
+    fig.update_layout(
+        **_layout(f"VaR vs CVaR — {confidence_pct}% confidence (daily)", 380,
+                  extra=dict(barmode="group", showlegend=True)),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
+    return fig
+
+
+def chart_var_loss_dollar(var_dict: dict, initial: float = 10_000) -> go.Figure:
+    methods = ["Historical VaR", "Parametric VaR", "Monte Carlo VaR",
+               "Historical CVaR", "Parametric CVaR", "Monte Carlo CVaR"]
+    values  = [
+        var_dict["historical_var"]  * initial,
+        var_dict["parametric_var"]  * initial,
+        var_dict["montecarlo_var"]  * initial,
+        var_dict["historical_cvar"] * initial,
+        var_dict["parametric_cvar"] * initial,
+        var_dict["montecarlo_cvar"] * initial,
+    ]
+    bar_colors = [NEGATIVE_COLOR] * 3 + ["#f97316"] * 3
+
+    fig = go.Figure(go.Bar(
+        x=values,
+        y=methods,
+        orientation="h",
+        marker_color=bar_colors,
+        opacity=0.85,
+        text=[f"${v:,.0f}" for v in values],
+        textposition="outside",
+        hovertemplate="%{y}<br>Loss at risk: $%{x:,.0f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_layout(f"Dollar loss at risk (${initial:,.0f} portfolio)", 340),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False,
+                     tickprefix="$", tickformat=",.0f")
+    fig.update_yaxes(showgrid=False, zeroline=False)
+    return fig
+
+
+def chart_monte_carlo_fan(
+    port_returns: pd.Series,
+    horizon: int = 30,
+    n_simulations: int = 200,
+    confidence: float = 0.95,
+    initial: float = 10_000,
+) -> go.Figure:
+    from analytics.var import monte_carlo_paths
+
+    paths    = monte_carlo_paths(port_returns, n_simulations, horizon) * initial
+    x_axis   = list(range(horizon + 1))
+
+    p5       = np.percentile(paths, 5,  axis=0)
+    p25      = np.percentile(paths, 25, axis=0)
+    p50      = np.percentile(paths, 50, axis=0)
+    p75      = np.percentile(paths, 75, axis=0)
+    p95      = np.percentile(paths, 95, axis=0)
+
+    fig = go.Figure()
+
+    # individual ones
+    for i in range(min(50, n_simulations)):
+        fig.add_trace(go.Scatter(
+            x=x_axis, y=paths[i],
+            mode="lines",
+            line=dict(color="rgba(99,102,241,0.06)", width=1),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # 5-95 band
+    fig.add_trace(go.Scatter(
+        x=x_axis + x_axis[::-1],
+        y=list(p95) + list(p5[::-1]),
+        fill="toself",
+        fillcolor="rgba(99,102,241,0.10)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name="5th–95th percentile",
+        hoverinfo="skip",
+    ))
+
+    # 25-75 band
+    fig.add_trace(go.Scatter(
+        x=x_axis + x_axis[::-1],
+        y=list(p75) + list(p25[::-1]),
+        fill="toself",
+        fillcolor="rgba(99,102,241,0.18)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name="25th–75th percentile",
+        hoverinfo="skip",
+    ))
+
+    # Median
+    fig.add_trace(go.Scatter(
+        x=x_axis, y=p50,
+        mode="lines",
+        name="Median path",
+        line=dict(color=PORTFOLIO_COLOR, width=2.5),
+        hovertemplate="Day %{x}<br>Median: $%{y:,.0f}<extra></extra>",
+    ))
+
+    # 5th percentile (worst case)
+    fig.add_trace(go.Scatter(
+        x=x_axis, y=p5,
+        mode="lines",
+        name=f"{int((1-confidence)*100)}th percentile (VaR)",
+        line=dict(color=NEGATIVE_COLOR, width=1.5, dash="dash"),
+        hovertemplate="Day %{x}<br>5th pct: $%{y:,.0f}<extra></extra>",
+    ))
+
+    # Starting value line
+    fig.add_hline(
+        y=initial,
+        line_width=0.8,
+        line_color="rgba(128,128,128,0.4)",
+        annotation_text=f"Start: ${initial:,.0f}",
+        annotation_position="right",
+        annotation_font=dict(size=10, color="rgba(200,200,200,0.6)"),
+    )
+
+    fig.update_layout(
+        **_layout(f"Monte Carlo simulation — {horizon}-day horizon "
+                  f"({n_simulations} paths)", 420),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, title_text="Trading days")
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False,
+                     tickprefix="$", tickformat=",.0f")
+    return fig
+
+
+def chart_var_over_time(
+    port_returns: pd.Series,
+    confidence: float = 0.95,
+    window: int = 126,
+) -> go.Figure:
+    rolling_var = port_returns.rolling(window).apply(
+        lambda x: abs(np.percentile(x, (1 - confidence) * 100)),
+        raw=True,
+    ).dropna() * 100
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=rolling_var.index,
+        y=rolling_var.values,
+        mode="lines",
+        name=f"Rolling {window}d VaR ({int(confidence*100)}%)",
+        line=dict(color=NEGATIVE_COLOR, width=2),
+        fill="tozeroy",
+        fillcolor="rgba(239,68,68,0.08)",
+        hovertemplate="%{x|%b %d, %Y}<br>VaR: %{y:.3f}%<extra></extra>",
+    ))
+
+    fig.update_layout(**_layout(
+        f"Rolling {window}-day historical VaR ({int(confidence*100)}% confidence)", 280
+    ))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
+    return fig

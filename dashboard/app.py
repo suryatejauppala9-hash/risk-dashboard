@@ -51,6 +51,14 @@ from dashboard.charts import (
     chart_rolling_beta,
 )
 
+from analytics.var import var_summary
+
+from dashboard.charts import(
+    chart_var_comparison,
+    chart_var_loss_dollar,
+    chart_monte_carlo_fan,
+    chart_var_over_time,
+)
 st.set_page_config(
     page_title="Risk Dashboard",
     layout="wide",
@@ -146,12 +154,13 @@ with st.sidebar:
     )
 
     st.divider()
-    run = st.button("▶  Run Analysis", type="primary", use_container_width=True)
+    if st.button("▶  Run Analysis", type="primary", use_container_width=True):
+        st.session_state["analysis_run"] = True
     st.caption("Data: Yahoo Finance · Streamlit + Plotly")
 
 #landing screen
 
-if not run:
+if not st.session_state.get("analysis_run", False):
     st.markdown("## Portfolio Risk Dashboard")
     st.info("Configure your portfolio in the sidebar and click **▶ Run Analysis**.")
     c1, c2, c3, c4 = st.columns(4)
@@ -266,8 +275,8 @@ st.divider()
 
 
 #tabs
-tab1, tab2, tab3, tab4,tab5 = st.tabs(
-    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics"]
+tab1, tab2, tab3, tab4,tab5, tab6 = st.tabs(
+    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR"]
 )
 
 
@@ -472,3 +481,130 @@ with tab5:
             )
     else:
         st.info("Select a benchmark in the sidebar to see beta, alpha, and correlation metrics.")
+
+# tab6
+with tab6:
+
+    st.markdown("### Value at Risk (VaR) & Expected Shortfall (CVaR)")
+
+    # settings
+    cfg1, cfg2, cfg3 = st.columns(3)
+    with cfg1:
+        confidence = st.select_slider(
+            "Confidence level",
+            options=[0.90, 0.95, 0.99],
+            value=0.95,
+            format_func=lambda x: f"{int(x*100)}%",
+        )
+    with cfg2:
+        horizon = st.select_slider(
+            "Horizon (trading days)",
+            options=[1, 5, 10, 21],
+            value=1,
+            format_func=lambda x: {1: "1d", 5: "1w", 10: "2w", 21: "1m"}[x],
+        )
+    with cfg3:
+        n_sims = st.select_slider(
+            "Monte Carlo simulations",
+            options=[1_000, 5_000, 10_000],
+            value=10_000,
+            format_func=lambda x: f"{x:,}",
+        )
+
+    with st.spinner("Running VaR calculations..."):
+        vd = var_summary(port_ret, confidence, horizon, n_sims)
+
+    # cards
+    st.markdown("**Value at Risk** — maximum expected daily loss at selected confidence")
+    v1, v2, v3 = st.columns(3)
+    v1.metric("Historical VaR",   f"-{vd['historical_var']*100:.3f}%",
+              delta=f"-${vd['historical_var']*initial_investment:,.0f}",
+              delta_color="off",
+              help="Percentile of actual past returns. No distributional assumption.")
+    v2.metric("Parametric VaR",   f"-{vd['parametric_var']*100:.3f}%",
+              delta=f"-${vd['parametric_var']*initial_investment:,.0f}",
+              delta_color="off",
+              help="Assumes normal distribution. Fast but underestimates fat tails.")
+    v3.metric("Monte Carlo VaR",  f"-{vd['montecarlo_var']*100:.3f}%",
+              delta=f"-${vd['montecarlo_var']*initial_investment:,.0f}",
+              delta_color="off",
+              help=f"Simulated from {n_sims:,} random paths using historical mean and vol.")
+
+    st.divider()
+
+    # cards cvar
+    st.markdown("**Expected Shortfall (CVaR)** — average loss when VaR is breached")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Historical CVaR",  f"-{vd['historical_cvar']*100:.3f}%",
+              delta=f"-${vd['historical_cvar']*initial_investment:,.0f}",
+              delta_color="off",
+              help="Mean of all losses worse than the historical VaR threshold.")
+    c2.metric("Parametric CVaR",  f"-{vd['parametric_cvar']*100:.3f}%",
+              delta=f"-${vd['parametric_cvar']*initial_investment:,.0f}",
+              delta_color="off",
+              help="Analytical CVaR under normality assumption.")
+    c3.metric("Monte Carlo CVaR", f"-{vd['montecarlo_cvar']*100:.3f}%",
+              delta=f"-${vd['montecarlo_cvar']*initial_investment:,.0f}",
+              delta_color="off",
+              help="Mean of simulated losses beyond the Monte Carlo VaR.")
+
+    st.divider()
+
+    # row1 charts
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(
+            chart_var_comparison(vd, initial_investment),
+            use_container_width=True,
+        )
+    with col2:
+        st.plotly_chart(
+            chart_var_loss_dollar(vd, initial_investment),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    # MC chart
+    fan_horizon = st.slider(
+        "Fan chart horizon (trading days)",
+        min_value=5, max_value=63, value=30, step=5,
+        help="How many days forward to simulate. 21 = 1 month, 63 = 1 quarter.",
+    )
+    st.plotly_chart(
+        chart_monte_carlo_fan(port_ret, fan_horizon, 300, confidence, initial_investment),
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # rollinv var
+    st.plotly_chart(
+        chart_var_over_time(port_ret, confidence, window=126),
+        use_container_width=True,
+    )
+
+    # method comparison
+    st.divider()
+    st.markdown("**Method comparison**")
+    diff_hist_param = abs(vd["historical_var"] - vd["parametric_var"]) * 100
+
+    if diff_hist_param > 0.3:
+        st.warning(
+            f"Historical and Parametric VaR differ by {diff_hist_param:.2f}%. "
+            f"This gap is caused by fat tails in your return distribution — "
+            f"actual extreme returns are more severe than a normal distribution predicts. "
+            f"Parametric VaR is underestimating your true tail risk."
+        )
+    else:
+        st.info(
+            f"All three methods produce similar VaR estimates (within {diff_hist_param:.2f}%). "
+            f"Your return distribution is approximately normal — parametric assumptions hold reasonably well."
+        )
+
+    cvar_vs_var = (vd["historical_cvar"] / vd["historical_var"] - 1) * 100
+    st.info(
+        f"Expected Shortfall is {cvar_vs_var:.1f}% worse than VaR on average. "
+        f"This is the additional loss you should expect on the days when VaR is breached — "
+        f"the number banks use for capital adequacy calculations."
+    )
