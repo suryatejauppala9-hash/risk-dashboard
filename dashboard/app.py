@@ -59,6 +59,28 @@ from dashboard.charts import(
     chart_monte_carlo_fan,
     chart_var_over_time,
 )
+
+from analytics.correlation import (
+    correlation_matrix,
+    rolling_correlation,
+    average_pairwise_correlation,
+    diversification_ratio,
+    risk_contribution,
+)
+from analytics.stress import (
+    SCENARIOS,
+    apply_scenario,
+    apply_custom_scenario,
+    all_scenario_impacts,
+)
+from dashboard.charts import (
+    chart_correlation_heatmap,
+    chart_rolling_correlation,
+    chart_risk_contribution,
+    chart_scenario_summary,
+    chart_scenario_waterfall,
+)
+
 st.set_page_config(
     page_title="Risk Dashboard",
     layout="wide",
@@ -275,8 +297,8 @@ st.divider()
 
 
 #tabs
-tab1, tab2, tab3, tab4,tab5, tab6 = st.tabs(
-    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR"]
+tab1, tab2, tab3, tab4,tab5, tab6,tab7, tab8 = st.tabs(
+    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR","Correlation","Stress Test"]
 )
 
 
@@ -607,4 +629,200 @@ with tab6:
         f"Expected Shortfall is {cvar_vs_var:.1f}% worse than VaR on average. "
         f"This is the additional loss you should expect on the days when VaR is breached — "
         f"the number banks use for capital adequacy calculations."
+    )
+
+# tab 7
+
+with tab7:
+    st.markdown("### Correlation Dashboard")
+
+    corr_mat  = correlation_matrix(daily_ret)
+    avg_corr  = average_pairwise_correlation(daily_ret)
+    div_ratio = diversification_ratio(daily_ret, weights)
+    risk_contrib = risk_contribution(daily_ret, weights)
+
+    # summary
+    d1, d2, d3 = st.columns(3)
+    d1.metric(
+        "Avg pairwise correlation",
+        f"{avg_corr:.2f}",
+        help="Average correlation across all ticker pairs. Lower = better diversification.",
+    )
+    d2.metric(
+        "Diversification ratio",
+        f"{div_ratio:.2f}",
+        help="Weighted avg vol / portfolio vol. Above 1 means diversification is reducing risk.",
+    )
+    d3.metric(
+        "Tickers",
+        len(port_tickers),
+    )
+
+    if avg_corr > 0.75:
+        st.warning(
+            f"Average pairwise correlation of {avg_corr:.2f} is high. "
+            f"Your holdings move together closely — diversification benefit is limited. "
+            f"Consider adding uncorrelated assets."
+        )
+    elif avg_corr < 0.40:
+        st.success(
+            f"Average pairwise correlation of {avg_corr:.2f} is low. "
+            f"Good diversification across holdings."
+        )
+
+    st.divider()
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.plotly_chart(
+            chart_correlation_heatmap(corr_mat),
+            use_container_width=True,
+        )
+    with col2:
+        st.plotly_chart(
+            chart_risk_contribution(risk_contrib),
+            use_container_width=True,
+        )
+
+    # risk contribution
+    st.markdown("**Weight vs risk contribution breakdown**")
+    total_w = sum(weights.values())
+    norm_w  = {k: v / total_w for k, v in weights.items()}
+
+    rc_rows = []
+    for ticker in port_tickers:
+        w_pct  = norm_w.get(ticker, 0) * 100
+        rc_pct = float(risk_contrib.get(ticker, 0))
+        rc_rows.append({
+            "Ticker":            ticker,
+            "Portfolio weight":  f"{w_pct:.1f}%",
+            "Risk contribution": f"{rc_pct:.1f}%",
+            "Difference":        f"{rc_pct - w_pct:+.1f}%",
+        })
+
+    st.dataframe(
+        pd.DataFrame(rc_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption("Positive difference = ticker contributes more risk than its weight suggests.")
+
+    st.divider()
+
+    # rolling correlation
+    if len(port_tickers) >= 2:
+        st.markdown("**Rolling pairwise correlation**")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            ticker_a = st.selectbox("Ticker A", port_tickers, index=0)
+        with rc2:
+            remaining = [t for t in port_tickers if t != ticker_a]
+            ticker_b  = st.selectbox("Ticker B", remaining, index=0)
+
+        roll_corr = rolling_correlation(daily_ret, ticker_a, ticker_b, window=60)
+        st.plotly_chart(
+            chart_rolling_correlation(roll_corr, f"{ticker_a} vs {ticker_b}", 60),
+            use_container_width=True,
+        )
+
+
+# tab 8
+
+with tab8:
+    st.markdown("### Stress Testing")
+
+    # summary
+    all_impacts = all_scenario_impacts(weights)
+    st.plotly_chart(
+        chart_scenario_summary(all_impacts),
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # single
+    st.markdown("**Scenario deep-dive**")
+    selected_scenario = st.selectbox(
+        "Select scenario",
+        list(SCENARIOS.keys()),
+    )
+
+    result = apply_scenario(weights, selected_scenario)
+
+    impact_pct      = result["portfolio_impact"] * 100
+    impact_dollar   = result["portfolio_impact"] * initial_investment
+
+    s1, s2, s3 = st.columns(3)
+    s1.metric(
+        "Portfolio impact",
+        f"{impact_pct:+.2f}%",
+        delta_color="off",
+    )
+    s2.metric(
+        "Dollar loss",
+        f"${impact_dollar:+,.0f}",
+        delta_color="off",
+    )
+    s3.metric(
+        "Remaining value",
+        f"${initial_investment + impact_dollar:,.0f}",
+        delta=f"from ${initial_investment:,.0f}",
+        delta_color="off",
+    )
+
+    st.caption(f"_{result['description']}_")
+
+    st.plotly_chart(
+        chart_scenario_waterfall(result),
+        use_container_width=True,
+    )
+
+    st.markdown("**Per-ticker breakdown**")
+    display_cols = ["Ticker", "Weight", "Sector", "Shock", "Contribution"]
+    st.dataframe(
+        result["rows"][display_cols],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    # custom
+    st.markdown("**Custom scenario**")
+    st.caption("Define your own shocks and see the portfolio impact instantly.")
+
+    cs1, cs2, cs3, cs4 = st.columns(4)
+    with cs1:
+        custom_market = st.slider(
+            "Market shock (%)", -60, 20, -20, step=1
+        ) / 100
+    with cs2:
+        custom_tech = st.slider(
+            "Tech shock (%)", -80, 30, -30, step=1
+        ) / 100
+    with cs3:
+        custom_fin = st.slider(
+            "Financials shock (%)", -60, 20, -15, step=1
+        ) / 100
+    with cs4:
+        custom_energy = st.slider(
+            "Energy shock (%)", -60, 50, -10, step=1
+        ) / 100
+
+    custom_result = apply_custom_scenario(
+        weights, custom_market, custom_tech, custom_fin, custom_energy
+    )
+
+    custom_impact     = custom_result["portfolio_impact"] * 100
+    custom_dollar     = custom_result["portfolio_impact"] * initial_investment
+
+    cc1, cc2, cc3 = st.columns(3)
+    cc1.metric("Portfolio impact", f"{custom_impact:+.2f}%", delta_color="off")
+    cc2.metric("Dollar loss",      f"${custom_dollar:+,.0f}", delta_color="off")
+    cc3.metric("Remaining value",  f"${initial_investment + custom_dollar:,.0f}",
+               delta_color="off")
+
+    st.plotly_chart(
+        chart_scenario_waterfall(custom_result),
+        use_container_width=True,
     )

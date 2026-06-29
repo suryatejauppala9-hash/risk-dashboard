@@ -646,3 +646,165 @@ def chart_var_over_time(
     fig.update_xaxes(showgrid=False, zeroline=False)
     fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
     return fig
+
+
+# phase 4
+
+def chart_correlation_heatmap(corr_matrix: pd.DataFrame) -> go.Figure:
+    tickers = list(corr_matrix.columns)
+    z       = corr_matrix.values
+    text    = [[f"{v:.2f}" for v in row] for row in z]
+
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        x=tickers,
+        y=tickers,
+        text=text,
+        texttemplate="%{text}",
+        textfont=dict(size=12),
+        colorscale=[
+            [0.0,  "#3b82f6"],
+            [0.5,  "rgba(20,20,30,0.2)"],
+            [1.0,  "#ef4444"],
+        ],
+        zmin=-1, zmax=1,
+        showscale=True,
+        colorbar=dict(thickness=12, len=0.8,
+                      tickvals=[-1, -0.5, 0, 0.5, 1],
+                      ticktext=["-1", "-0.5", "0", "0.5", "1"]),
+        hovertemplate="<b>%{y} vs %{x}</b><br>Correlation: %{z:.3f}<extra></extra>",
+    ))
+
+    n = len(tickers)
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, system-ui, sans-serif", size=12),
+        margin=dict(l=0, r=0, t=36, b=0),
+        title=dict(text="Correlation matrix", font=dict(size=14)),
+        height=max(300, n * 60 + 100),
+    )
+    return fig
+
+
+def chart_rolling_correlation(
+    roll_corr: pd.Series,
+    label: str,
+    window: int = 60,
+) -> go.Figure:
+    colors = [POSITIVE_COLOR if v >= 0 else NEGATIVE_COLOR
+              for v in roll_corr.fillna(0)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=roll_corr.index,
+        y=roll_corr.values,
+        mode="lines",
+        name=label,
+        line=dict(color=PORTFOLIO_COLOR, width=2),
+        hovertemplate="%{x|%b %d, %Y}<br>Correlation: %{y:.3f}<extra></extra>",
+    ))
+    fig.add_hline(y=0,  line_width=0.8, line_color="rgba(128,128,128,0.3)")
+    fig.add_hline(y=0.8, line_width=1,  line_dash="dot",
+                  line_color="rgba(239,68,68,0.4)",
+                  annotation_text="High correlation (0.8)",
+                  annotation_position="right",
+                  annotation_font=dict(size=10, color="rgba(239,68,68,0.6)"))
+
+    fig.update_layout(**_layout(f"Rolling {window}d correlation: {label}", 280))
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False,
+                     range=[-1.05, 1.05])
+    return fig
+
+
+def chart_risk_contribution(risk_contrib: pd.Series) -> go.Figure:
+    tickers = list(risk_contrib.index)
+    values  = list(risk_contrib.values)
+    colors  = TICKER_COLORS[:len(tickers)]
+
+    fig = go.Figure(go.Pie(
+        labels=tickers,
+        values=values,
+        hole=0.55,
+        marker=dict(colors=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
+        textinfo="label+percent",
+        textfont=dict(size=12),
+        hovertemplate="%{label}<br>Risk contribution: %{value:.1f}%<extra></extra>",
+        rotation=90,
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        margin=dict(l=0, r=0, t=36, b=0),
+        title=dict(text="Risk contribution to portfolio volatility", font=dict(size=14)),
+        height=300,
+        annotations=[dict(
+            text="Vol share",
+            x=0.5, y=0.5,
+            font=dict(size=12, color="rgba(150,150,150,0.9)"),
+            showarrow=False,
+        )],
+    )
+    return fig
+
+
+def chart_scenario_summary(scenario_df: pd.DataFrame) -> go.Figure:
+    colors = [NEGATIVE_COLOR if v < 0 else POSITIVE_COLOR
+              for v in scenario_df["Portfolio loss"]]
+
+    fig = go.Figure(go.Bar(
+        x=scenario_df["Portfolio loss"],
+        y=scenario_df["Scenario"],
+        orientation="h",
+        marker_color=colors,
+        marker_line_width=0,
+        opacity=0.85,
+        text=[f"{v:+.1f}%" for v in scenario_df["Portfolio loss"]],
+        textposition="outside",
+        hovertemplate="%{y}<br>Portfolio impact: %{x:.2f}%<extra></extra>",
+    ))
+
+    fig.add_vline(x=0, line_width=0.8, line_color="rgba(128,128,128,0.4)")
+    fig.update_layout(**_layout("Scenario stress test — portfolio impact", 340))
+    fig.update_xaxes(showgrid=False, zeroline=False, ticksuffix="%")
+    fig.update_yaxes(showgrid=False, zeroline=False)
+    return fig
+
+
+def chart_scenario_waterfall(result: dict) -> go.Figure:
+    df      = result["rows"].sort_values("Contribution (raw)")
+    total   = result["portfolio_impact"]
+
+    measures = ["relative"] * len(df) + ["total"]
+    x_labels = list(df["Ticker"]) + ["TOTAL"]
+    y_values = list(df["Contribution (raw)"] * 100) + [total * 100]
+
+    fig = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=measures,
+        x=x_labels,
+        y=y_values,
+        connector=dict(line=dict(color="rgba(128,128,128,0.2)", width=1)),
+        decreasing=dict(
+            marker=dict(color=NEGATIVE_COLOR)
+        ),
+        increasing=dict(
+            marker=dict(color=POSITIVE_COLOR)
+        ),
+        totals=dict(
+            marker=dict(color=PORTFOLIO_COLOR)
+        ),
+        text=[f"{v:+.2f}%" for v in y_values],
+        textposition="outside",
+        hovertemplate="%{x}<br>%{y:.2f}%<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_layout(f"Scenario: {result['scenario']} — contribution by ticker", 360),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=True,
+                     zerolinecolor=GRID_COLOR, ticksuffix="%")
+    return fig
