@@ -81,7 +81,7 @@ def chart_portfolio_value(
         line=dict(color=PORTFOLIO_COLOR,width=2.5),
         fill="tozeroy",
         fillcolor="rgba(99,102,241,0.08)",
-        hovertemplate="$%{y:,.0f}<extra>Portfolio</extra>"
+        hovertemplate="Rs. %{y:,.0f}<extra>Portfolio</extra>"
     ))
 
     if bench_cum is not None:
@@ -92,19 +92,19 @@ def chart_portfolio_value(
             mode="lines",
             name=bench_label,
             line=dict(color=BENCHMARK_COLOR,width=1.8,dash="dot"),
-            hovertemplate="$%{y:,.0f}<extra>"+bench_label+"</extra>",
+            hovertemplate="Rs. %{y:,.0f}<extra>"+bench_label+"</extra>",
         ))
 
     fig.add_hline(
         y=initial,
         line_width=0.8,
         line_color="rgba(128,128,128,0.3)",
-        annotation_text=f"${initial:,.0f} invested",
+        annotation_text=f"Rs. {initial:,.0f} invested",
         annotation_position="bottom right",
     )
-    fig.update_layout(**_layout(f"Portfolio value(${initial:,.0f} invested)",360))
+    fig.update_layout(**_layout(f"Portfolio value(Rs. {initial:,.0f} invested)",360))
     fig.update_xaxes(showgrid=False,zeroline=False)
-    fig.update_yaxes(gridcolor=GRID_COLOR,zeroline=False,tickprefix="$",tickformat=",.0f")
+    fig.update_yaxes(gridcolor=GRID_COLOR,zeroline=False,tickprefix="Rs. ",tickformat=",.0f")
     return fig
 
 
@@ -514,16 +514,16 @@ def chart_var_loss_dollar(var_dict: dict, initial: float = 10_000) -> go.Figure:
         orientation="h",
         marker_color=bar_colors,
         opacity=0.85,
-        text=[f"${v:,.0f}" for v in values],
+        text=[f"Rs. {v:,.0f}" for v in values],
         textposition="outside",
-        hovertemplate="%{y}<br>Loss at risk: $%{x:,.0f}<extra></extra>",
+        hovertemplate="%{y}<br>Loss at risk: Rs. %{x:,.0f}<extra></extra>",
     ))
 
     fig.update_layout(
-        **_layout(f"Dollar loss at risk (${initial:,.0f} portfolio)", 340),
+        **_layout(f"Loss at risk (Rs. {initial:,.0f} portfolio)", 340),
     )
     fig.update_xaxes(showgrid=False, zeroline=False,
-                     tickprefix="$", tickformat=",.0f")
+                     tickprefix="Rs. ", tickformat=",.0f")
     fig.update_yaxes(showgrid=False, zeroline=False)
     return fig
 
@@ -586,7 +586,7 @@ def chart_monte_carlo_fan(
         mode="lines",
         name="Median path",
         line=dict(color=PORTFOLIO_COLOR, width=2.5),
-        hovertemplate="Day %{x}<br>Median: $%{y:,.0f}<extra></extra>",
+        hovertemplate="Day %{x}<br>Median: Rs. %{y:,.0f}<extra></extra>",
     ))
 
     # 5th percentile (worst case)
@@ -595,7 +595,7 @@ def chart_monte_carlo_fan(
         mode="lines",
         name=f"{int((1-confidence)*100)}th percentile (VaR)",
         line=dict(color=NEGATIVE_COLOR, width=1.5, dash="dash"),
-        hovertemplate="Day %{x}<br>5th pct: $%{y:,.0f}<extra></extra>",
+        hovertemplate="Day %{x}<br>5th pct: Rs. %{y:,.0f}<extra></extra>",
     ))
 
     # Starting value line
@@ -603,7 +603,7 @@ def chart_monte_carlo_fan(
         y=initial,
         line_width=0.8,
         line_color="rgba(128,128,128,0.4)",
-        annotation_text=f"Start: ${initial:,.0f}",
+        annotation_text=f"Start: Rs. {initial:,.0f}",
         annotation_position="right",
         annotation_font=dict(size=10, color="rgba(200,200,200,0.6)"),
     )
@@ -614,7 +614,7 @@ def chart_monte_carlo_fan(
     )
     fig.update_xaxes(showgrid=False, zeroline=False, title_text="Trading days")
     fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False,
-                     tickprefix="$", tickformat=",.0f")
+                     tickprefix="Rs. ", tickformat=",.0f")
     return fig
 
 

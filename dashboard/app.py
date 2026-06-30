@@ -122,9 +122,16 @@ def fmt_pct(v: float, d: int = 2) -> str:
     sign = "+" if v >= 0 else ""
     return f"{sign}{v * 100:.{d}f}%"
 
-
 def fmt_ratio(v: float) -> str:
     return f"{v:.2f}"
+
+def fmt_inr(v: float) -> str:
+    if abs(v) >= 1_00_00_000:
+        return f"Rs. {v/1_00_00_000:.2f} Cr"
+    elif abs(v) >= 1_00_000:
+        return f"Rs. {v/1_00_000:.2f} L"
+    else:
+        return f"Rs. {v:,.0f}"
 
 with st.sidebar:
     st.title("Risk Dashboard")
@@ -132,9 +139,10 @@ with st.sidebar:
     st.divider()
 
     st.markdown("**Portfolio** one per line: `TICKER WEIGHT%`")
+    st.caption("NSE tickers: add `.NS` suffix (e.g. `RELIANCE.NS`). BSE: add `.BO`.")
     raw_input = st.text_area(
         "portfolio_input",
-        value="AAPL 20\nMSFT 25\nGOOGL 15\nNVDA 20\nSPY 20",
+        value="RELIANCE.NS 20\nTCS.NS 20\nINFY.NS 15\nHDFCBANK.NS 25\nNIFTYBEES.NS 20",
         height=155,
         label_visibility="collapsed",
         help="Weights are auto-normalised — they don't need to sum to 100.",
@@ -163,22 +171,23 @@ with st.sidebar:
 
     benchmark = st.selectbox(
         "Benchmark",
-        list(benchmark_options.keys())
+        list(benchmark_options.keys()),
+        index=list(benchmark_options.keys()).index("NIFTY 50"),
     )
 
     bench_ticker = benchmark_options[benchmark]
 
     initial_investment = st.number_input(
-        "Initial investment ($)",
-        min_value=1_000, max_value=10_000_000,
-        value=10_000, step=1_000,
+        "Initial investment (Rs.)",
+        min_value=10_000, max_value=10_00_00_000,
+        value=1_00_000, step=10_000,
         format="%d",
     )
 
     st.divider()
     if st.button("▶  Run Analysis", type="primary", use_container_width=True):
         st.session_state["analysis_run"] = True
-    st.caption("Data: Yahoo Finance · Streamlit + Plotly")
+    st.caption("Data: Yahoo Finance · NSE/BSE via yfinance · Streamlit + Plotly")
 
 #landing screen
 
@@ -290,8 +299,8 @@ b1.metric("Best day",    fmt_pct(summary["best_day"]),
           delta=port_ret.idxmax().strftime("%b %d, %Y"), delta_color="off")
 b2.metric("Worst day",   fmt_pct(summary["worst_day"]),
           delta=port_ret.idxmin().strftime("%b %d, %Y"), delta_color="off")
-b3.metric("Final value", f"${port_value.iloc[-1]:,.0f}",
-          delta=f"from ${initial_investment:,.0f}", delta_color="off")
+b3.metric("Final value", fmt_inr(port_value.iloc[-1]),
+          delta=f"from {fmt_inr(initial_investment)}", delta_color="off")
 
 st.divider()
 
@@ -540,15 +549,15 @@ with tab6:
     st.markdown("**Value at Risk** — maximum expected daily loss at selected confidence")
     v1, v2, v3 = st.columns(3)
     v1.metric("Historical VaR",   f"-{vd['historical_var']*100:.3f}%",
-              delta=f"-${vd['historical_var']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['historical_var']*initial_investment)}",
               delta_color="off",
               help="Percentile of actual past returns. No distributional assumption.")
     v2.metric("Parametric VaR",   f"-{vd['parametric_var']*100:.3f}%",
-              delta=f"-${vd['parametric_var']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['parametric_var']*initial_investment)}",
               delta_color="off",
               help="Assumes normal distribution. Fast but underestimates fat tails.")
     v3.metric("Monte Carlo VaR",  f"-{vd['montecarlo_var']*100:.3f}%",
-              delta=f"-${vd['montecarlo_var']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['montecarlo_var']*initial_investment)}",
               delta_color="off",
               help=f"Simulated from {n_sims:,} random paths using historical mean and vol.")
 
@@ -558,15 +567,15 @@ with tab6:
     st.markdown("**Expected Shortfall (CVaR)** — average loss when VaR is breached")
     c1, c2, c3 = st.columns(3)
     c1.metric("Historical CVaR",  f"-{vd['historical_cvar']*100:.3f}%",
-              delta=f"-${vd['historical_cvar']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['historical_cvar']*initial_investment)}",
               delta_color="off",
               help="Mean of all losses worse than the historical VaR threshold.")
     c2.metric("Parametric CVaR",  f"-{vd['parametric_cvar']*100:.3f}%",
-              delta=f"-${vd['parametric_cvar']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['parametric_cvar']*initial_investment)}",
               delta_color="off",
               help="Analytical CVaR under normality assumption.")
     c3.metric("Monte Carlo CVaR", f"-{vd['montecarlo_cvar']*100:.3f}%",
-              delta=f"-${vd['montecarlo_cvar']*initial_investment:,.0f}",
+              delta=f"-{fmt_inr(vd['montecarlo_cvar']*initial_investment)}",
               delta_color="off",
               help="Mean of simulated losses beyond the Monte Carlo VaR.")
 
@@ -759,14 +768,14 @@ with tab8:
         delta_color="off",
     )
     s2.metric(
-        "Dollar loss",
-        f"${impact_dollar:+,.0f}",
+        "Loss",
+        fmt_inr(impact_dollar),
         delta_color="off",
     )
     s3.metric(
         "Remaining value",
-        f"${initial_investment + impact_dollar:,.0f}",
-        delta=f"from ${initial_investment:,.0f}",
+        fmt_inr(initial_investment + impact_dollar),
+        delta=f"from {fmt_inr(initial_investment)}",
         delta_color="off",
     )
 
@@ -818,9 +827,8 @@ with tab8:
 
     cc1, cc2, cc3 = st.columns(3)
     cc1.metric("Portfolio impact", f"{custom_impact:+.2f}%", delta_color="off")
-    cc2.metric("Dollar loss",      f"${custom_dollar:+,.0f}", delta_color="off")
-    cc3.metric("Remaining value",  f"${initial_investment + custom_dollar:,.0f}",
-               delta_color="off")
+    cc2.metric("Loss",             fmt_inr(custom_dollar), delta_color="off")
+    cc3.metric("Remaining value",  fmt_inr(initial_investment + custom_dollar))
 
     st.plotly_chart(
         chart_scenario_waterfall(custom_result),
