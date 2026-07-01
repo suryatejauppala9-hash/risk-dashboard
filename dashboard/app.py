@@ -864,63 +864,109 @@ with tab9:
         horizontal=True,
     )
 
-    total_w  = sum(weights.values())
-    norm_w   = {k: v / total_w for k, v in weights.items() if k in port_tickers}
+    st.markdown("**Position constraints**")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        max_weight = st.slider(
+            "Maximum weight per stock (%)",
+            min_value=20, max_value=100,
+            value=40, step=5,
+            help="No single stock will exceed this. 40% is a common real-world limit.",
+        ) / 100
+    with col_b:
+        min_weight = st.slider(
+            "Minimum weight per stock (%)",
+            min_value=0, max_value=20,
+            value=5, step=1,
+            help="Every stock must hold at least this. Set to 0 to allow full exclusion.",
+        ) / 100
 
-    with st.spinner("Solving optimization..."):
-        try:
-            if opt_strategy == "Maximum Sharpe ratio":
-                opt_result = maximum_sharpe_portfolio(daily_ret[port_tickers], risk_free)
-                opt_label  = "Max Sharpe"
+    target = None
+    if opt_strategy == "Target return":
+        target = st.slider(
+            "Target annual return (%)",
+            min_value=0.0,
+            max_value=float(min(60.0, daily_ret[port_tickers].mean().max() * 252 * 150)),
+            value=float(max(1.0, ann_ret * 100)),
+            step=0.5,
+            format="%.1f%%",
+        ) / 100
 
-            elif opt_strategy == "Minimum variance":
-                opt_result = minimum_variance_portfolio(daily_ret[port_tickers])
-                opt_result["sharpe"] = (
-                    (opt_result["return"] - risk_free) / opt_result["volatility"]
-                    if opt_result["volatility"] > 0 else 0
-                )
-                opt_label  = "Min Variance"
+    # Feasibility check 
+    n_stocks = len(port_tickers)
+    if min_weight * n_stocks > 1.0:
+        st.error(
+            f"Minimum weight of {min_weight:.0%} across {n_stocks} stocks "
+            f"sums to {min_weight * n_stocks:.0%} which exceeds 100%. "
+            f"Reduce the minimum weight."
+        )
+        st.stop()
 
-            else:  # Target return
-                current_ann_ret = ann_ret
-                target = st.slider(
-                    "Target annual return",
-                    min_value=0.0,
-                    max_value=float(min(0.60, daily_ret[port_tickers].mean().max() * 252 * 1.5)),
-                    value=float(max(0.01, current_ann_ret)),
-                    step=0.01,
-                    format="%.2f",
-                )
-                opt_result = target_return_portfolio(daily_ret[port_tickers], target)
-                opt_result["sharpe"] = (
-                    (opt_result["return"] - risk_free) / opt_result["volatility"]
-                    if opt_result["volatility"] > 0 else 0
-                )
-                opt_label  = "Target Return"
+    if max_weight * n_stocks < 1.0:
+        st.error(
+            f"Maximum weight of {max_weight:.0%} across {n_stocks} stocks "
+            f"sums to {max_weight * n_stocks:.0%} which is below 100%. "
+            f"Increase the maximum weight."
+        )
+        st.stop()
 
-        except ValueError as e:
-            st.error(str(e))
-            st.stop()
+    total_w = sum(weights.values())
+    norm_w  = {k: v / total_w for k, v in weights.items() if k in port_tickers}
 
     st.divider()
 
-    # Comparison metrics
-    o1, o2, o3 = st.columns(3)
+    # optimization
+
+    try:
+        with st.spinner("Solving optimization..."):
+            if opt_strategy == "Maximum Sharpe ratio":
+                opt_result = maximum_sharpe_portfolio(
+                    daily_ret[port_tickers], risk_free, max_weight, min_weight
+                )
+                opt_label = "Max Sharpe"
+
+            elif opt_strategy == "Minimum variance":
+                opt_result = minimum_variance_portfolio(
+                    daily_ret[port_tickers], max_weight, min_weight
+                )
+                opt_result["sharpe"] = (
+                    (opt_result["return"] - risk_free) / opt_result["volatility"]
+                    if opt_result["volatility"] > 0 else 0.0
+                )
+                opt_label = "Min Variance"
+
+            else:
+                opt_result = target_return_portfolio(
+                    daily_ret[port_tickers], target, max_weight, min_weight
+                )
+                opt_result["sharpe"] = (
+                    (opt_result["return"] - risk_free) / opt_result["volatility"]
+                    if opt_result["volatility"] > 0 else 0.0
+                )
+                opt_label = "Target Return"
+
+    except ValueError as e:
+        st.error(str(e))
+        st.stop()
+
+    # comparision
 
     return_delta = (opt_result["return"] - ann_ret) * 100
     vol_delta    = (opt_result["volatility"] - ann_vol) * 100
     sharpe_delta = (
-        (opt_result["sharpe"] - sharpe) if opt_result["sharpe"] is not None else None
+        opt_result["sharpe"] - sharpe
+        if opt_result["sharpe"] is not None else None
     )
 
+    o1, o2, o3 = st.columns(3)
     o1.metric(
         "Optimized annual return",
-        f"{opt_result['return']*100:.2f}%",
+        f"{opt_result['return'] * 100:.2f}%",
         delta=f"{return_delta:+.2f}% vs current",
     )
     o2.metric(
         "Optimized annual volatility",
-        f"{opt_result['volatility']*100:.2f}%",
+        f"{opt_result['volatility'] * 100:.2f}%",
         delta=f"{vol_delta:+.2f}% vs current",
         delta_color="inverse",
     )
@@ -932,15 +978,24 @@ with tab9:
 
     st.divider()
 
-    # Efficient frontier
+    # efficient frontier
+
     with st.spinner("Computing efficient frontier..."):
-        frontier_df = efficient_frontier(daily_ret[port_tickers], n_points=40)
-        random_df   = random_portfolio(daily_ret[port_tickers], n_portfolios=1500)
-
+        frontier_df = efficient_frontier(
+            daily_ret[port_tickers], n_points=40,
+            max_weight=max_weight, min_weight=min_weight,
+        )
+        random_df = random_portfolios(
+            daily_ret[port_tickers], n_portfolios=1500,
+            max_weight=max_weight,
+        )
         current_portfolio_pt = {"return": ann_ret, "volatility": ann_vol}
-
-        min_var_pt   = minimum_variance_portfolio(daily_ret[port_tickers])
-        max_shrp_pt  = maximum_sharpe_portfolio(daily_ret[port_tickers], risk_free)
+        min_var_pt  = minimum_variance_portfolio(
+            daily_ret[port_tickers], max_weight, min_weight
+        )
+        max_shrp_pt = maximum_sharpe_portfolio(
+            daily_ret[port_tickers], risk_free, max_weight, min_weight
+        )
 
     st.plotly_chart(
         chart_efficient_frontier(
@@ -952,23 +1007,25 @@ with tab9:
 
     st.divider()
 
-    # Weight comparison
+    # weight comp
+
     st.plotly_chart(
         chart_weight_comparison(norm_w, opt_result["weights"], opt_label),
         use_container_width=True,
     )
 
-    # Weight table
+    # table
+
     st.markdown("**Suggested new weights**")
     weight_rows = []
     for ticker in port_tickers:
         cur = norm_w.get(ticker, 0) * 100
         opt = opt_result["weights"].get(ticker, 0) * 100
         weight_rows.append({
-            "Ticker":          ticker,
-            "Current weight":  f"{cur:.1f}%",
+            "Ticker":           ticker,
+            "Current weight":   f"{cur:.1f}%",
             "Suggested weight": f"{opt:.1f}%",
-            "Change":          f"{opt - cur:+.1f}%",
+            "Change":           f"{opt - cur:+.1f}%",
         })
     st.dataframe(
         pd.DataFrame(weight_rows),
@@ -976,12 +1033,14 @@ with tab9:
         hide_index=True,
     )
 
-    # Auto-commentary
+    # basic comments
+
     if vol_delta < -1:
         st.success(
             f"The {opt_label.lower()} portfolio reduces annualised volatility by "
             f"{abs(vol_delta):.2f} percentage points while "
-            f"{'maintaining similar' if abs(return_delta) < 2 else 'changing'} expected returns."
+            f"{'maintaining similar' if abs(return_delta) < 2 else 'adjusting'} "
+            f"expected returns."
         )
     if sharpe_delta is not None and sharpe_delta > 0.1:
         st.success(
@@ -989,10 +1048,17 @@ with tab9:
             f"delivers more return per unit of risk than the current portfolio."
         )
 
-    biggest_change = max(weight_rows, key=lambda r: abs(
-        float(r["Change"].replace("%", "").replace("+", ""))
-    ))
+    biggest_change = max(
+        weight_rows,
+        key=lambda r: abs(float(r["Change"].replace("%", "").replace("+", ""))),
+    )
     st.info(
         f"Largest suggested change: {biggest_change['Ticker']} moves from "
-        f"{biggest_change['Current weight']} to {biggest_change['Suggested weight']}."
+        f"{biggest_change['Current weight']} to {biggest_change['Suggested weight']}. "
+        f"Max weight per stock is capped at {max_weight:.0%}."
+    )
+
+    st.caption(
+        f"Constraints: min {min_weight:.0%} per stock, max {max_weight:.0%} per stock. "
+        f"Adjust the sliders above to explore different constraint regimes."
     )
