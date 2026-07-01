@@ -808,3 +808,122 @@ def chart_scenario_waterfall(result: dict) -> go.Figure:
     fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=True,
                      zerolinecolor=GRID_COLOR, ticksuffix="%")
     return fig
+
+
+# phase 5 optimization charts
+
+def chart_efficient_frontier(
+    frontier_df: pd.DataFrame,
+    random_df: pd.DataFrame,
+    current_portfolio: dict,
+    min_var_portfolio: dict = None,
+    max_sharpe_portfolio: dict = None,
+) -> go.Figure:
+    fig = go.Figure()
+
+    # Random portfolio cloud
+    fig.add_trace(go.Scatter(
+        x=random_df["volatility"] * 100,
+        y=random_df["return"] * 100,
+        mode="markers",
+        name="Random portfolios",
+        marker=dict(
+            size=4,
+            color=random_df["return"] / random_df["volatility"],
+            colorscale="Tealrose",
+            opacity=0.35,
+            showscale=False,
+        ),
+        hovertemplate="Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>",
+    ))
+
+    # Efficient frontier line
+    fig.add_trace(go.Scatter(
+        x=frontier_df["volatility"] * 100,
+        y=frontier_df["return"] * 100,
+        mode="lines",
+        name="Efficient frontier",
+        line=dict(color="white", width= 2.5),
+        hovertemplate="Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra>Frontier</extra>",
+    ))
+
+    # Current portfolio marker
+    fig.add_trace(go.Scatter(
+        x=[current_portfolio["volatility"] * 100],
+        y=[current_portfolio["return"] * 100],
+        mode="markers",
+        name="Your portfolio",
+        marker=dict(size=16, color=PORTFOLIO_COLOR, symbol="star",
+                    line=dict(color="white", width=1.5)),
+        hovertemplate="Your portfolio<br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>",
+    ))
+
+    # Minimum variance marker
+    if min_var_portfolio:
+        fig.add_trace(go.Scatter(
+            x=[min_var_portfolio["volatility"] * 100],
+            y=[min_var_portfolio["return"] * 100],
+            mode="markers",
+            name="Minimum variance",
+            marker=dict(size=14, color=POSITIVE_COLOR, symbol="diamond",
+                        line=dict(color="white", width=1.5)),
+            hovertemplate="Min variance<br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>",
+        ))
+
+    # Maximum Sharpe marker
+    if max_sharpe_portfolio:
+        fig.add_trace(go.Scatter(
+            x=[max_sharpe_portfolio["volatility"] * 100],
+            y=[max_sharpe_portfolio["return"] * 100],
+            mode="markers",
+            name="Maximum Sharpe",
+            marker=dict(size=14, color=BENCHMARK_COLOR, symbol="square",
+                        line=dict(color="white", width=1.5)),
+            hovertemplate="Max Sharpe<br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>",
+        ))
+
+    fig.update_layout(**_layout("Efficient frontier", 480,
+                                extra=dict(showlegend=True)))
+    fig.update_xaxes(showgrid=False, zeroline=False,
+                     ticksuffix="%", title_text="Annualised volatility (risk)")
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False,
+                     ticksuffix="%", title_text="Annualised return")
+    return fig
+
+def chart_weight_comparison(
+    current_weights: dict,
+    optimized_weights: dict,
+    optimization_label: str,
+) -> go.Figure:
+    tickers = sorted(set(current_weights.keys()) | set(optimized_weights.keys()))
+
+    current_vals   = [current_weights.get(t, 0) * 100 for t in tickers]
+    optimized_vals = [optimized_weights.get(t, 0) * 100 for t in tickers]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=tickers, y=current_vals,
+        name="Current",
+        marker_color=PORTFOLIO_COLOR,
+        opacity=0.85,
+        text=[f"{v:.1f}%" for v in current_vals],
+        textposition="outside",
+        hovertemplate="%{x}<br>Current: %{y:.1f}%<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        x=tickers, y=optimized_vals,
+        name=optimization_label,
+        marker_color=POSITIVE_COLOR,
+        opacity=0.85,
+        text=[f"{v:.1f}%" for v in optimized_vals],
+        textposition="outside",
+        hovertemplate="%{x}<br>" + optimization_label + ": %{y:.1f}%<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_layout(f"Current vs {optimization_label} weights", 360,
+                  extra=dict(barmode="group", showlegend=True)),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%")
+    return fig

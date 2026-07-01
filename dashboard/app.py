@@ -80,7 +80,17 @@ from dashboard.charts import (
     chart_scenario_summary,
     chart_scenario_waterfall,
 )
-
+from analytics.optimization import (
+    minimum_variance_portfolio,
+    maximum_sharpe_portfolio,
+    target_return_portfolio,
+    efficient_frontier,
+    random_portfolio,
+)
+from dashboard.charts import (
+    chart_efficient_frontier,
+    chart_weight_comparison,
+)
 st.set_page_config(
     page_title="Risk Dashboard",
     layout="wide",
@@ -306,8 +316,8 @@ st.divider()
 
 
 #tabs
-tab1, tab2, tab3, tab4,tab5, tab6,tab7, tab8 = st.tabs(
-    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR","Correlation","Stress Test"]
+tab1, tab2, tab3, tab4,tab5, tab6,tab7, tab8,tab9 = st.tabs(
+    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR","Correlation","Stress Test","Optimization"]
 )
 
 
@@ -456,7 +466,7 @@ with tab5:
         st.info("No completed drawdown")
 
     st.divider()
-    st.markdown("### Volatality")
+    st.markdown("### volatility")
     col1,col2=st.columns(2)
     with col1:
         st.plotly_chart(chart_rolling_volatility(port_ret),use_container_width=True)
@@ -833,4 +843,156 @@ with tab8:
     st.plotly_chart(
         chart_scenario_waterfall(custom_result),
         use_container_width=True,
+    )
+
+#tab 9 optimization
+
+with tab9:
+    st.markdown("### Portfolio Optimization")
+    st.caption(
+        "Find better weight allocations for the same set of tickers, "
+        "based on historical risk and return."
+    )
+
+    if len(port_tickers) < 2:
+        st.warning("Optimization needs at least 2 tickers in the portfolio.")
+        st.stop()
+
+    opt_strategy = st.radio(
+        "Optimization goal",
+        ["Maximum Sharpe ratio", "Minimum variance", "Target return"],
+        horizontal=True,
+    )
+
+    total_w  = sum(weights.values())
+    norm_w   = {k: v / total_w for k, v in weights.items() if k in port_tickers}
+
+    with st.spinner("Solving optimization..."):
+        try:
+            if opt_strategy == "Maximum Sharpe ratio":
+                opt_result = maximum_sharpe_portfolio(daily_ret[port_tickers], risk_free)
+                opt_label  = "Max Sharpe"
+
+            elif opt_strategy == "Minimum variance":
+                opt_result = minimum_variance_portfolio(daily_ret[port_tickers])
+                opt_result["sharpe"] = (
+                    (opt_result["return"] - risk_free) / opt_result["volatility"]
+                    if opt_result["volatility"] > 0 else 0
+                )
+                opt_label  = "Min Variance"
+
+            else:  # Target return
+                current_ann_ret = ann_ret
+                target = st.slider(
+                    "Target annual return",
+                    min_value=0.0,
+                    max_value=float(min(0.60, daily_ret[port_tickers].mean().max() * 252 * 1.5)),
+                    value=float(max(0.01, current_ann_ret)),
+                    step=0.01,
+                    format="%.2f",
+                )
+                opt_result = target_return_portfolio(daily_ret[port_tickers], target)
+                opt_result["sharpe"] = (
+                    (opt_result["return"] - risk_free) / opt_result["volatility"]
+                    if opt_result["volatility"] > 0 else 0
+                )
+                opt_label  = "Target Return"
+
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+
+    st.divider()
+
+    # Comparison metrics
+    o1, o2, o3 = st.columns(3)
+
+    return_delta = (opt_result["return"] - ann_ret) * 100
+    vol_delta    = (opt_result["volatility"] - ann_vol) * 100
+    sharpe_delta = (
+        (opt_result["sharpe"] - sharpe) if opt_result["sharpe"] is not None else None
+    )
+
+    o1.metric(
+        "Optimized annual return",
+        f"{opt_result['return']*100:.2f}%",
+        delta=f"{return_delta:+.2f}% vs current",
+    )
+    o2.metric(
+        "Optimized annual volatility",
+        f"{opt_result['volatility']*100:.2f}%",
+        delta=f"{vol_delta:+.2f}% vs current",
+        delta_color="inverse",
+    )
+    o3.metric(
+        "Optimized Sharpe ratio",
+        f"{opt_result['sharpe']:.2f}" if opt_result["sharpe"] is not None else "N/A",
+        delta=f"{sharpe_delta:+.2f} vs current" if sharpe_delta is not None else None,
+    )
+
+    st.divider()
+
+    # Efficient frontier
+    with st.spinner("Computing efficient frontier..."):
+        frontier_df = efficient_frontier(daily_ret[port_tickers], n_points=40)
+        random_df   = random_portfolio(daily_ret[port_tickers], n_portfolios=1500)
+
+        current_portfolio_pt = {"return": ann_ret, "volatility": ann_vol}
+
+        min_var_pt   = minimum_variance_portfolio(daily_ret[port_tickers])
+        max_shrp_pt  = maximum_sharpe_portfolio(daily_ret[port_tickers], risk_free)
+
+    st.plotly_chart(
+        chart_efficient_frontier(
+            frontier_df, random_df, current_portfolio_pt,
+            min_var_pt, max_shrp_pt,
+        ),
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # Weight comparison
+    st.plotly_chart(
+        chart_weight_comparison(norm_w, opt_result["weights"], opt_label),
+        use_container_width=True,
+    )
+
+    # Weight table
+    st.markdown("**Suggested new weights**")
+    weight_rows = []
+    for ticker in port_tickers:
+        cur = norm_w.get(ticker, 0) * 100
+        opt = opt_result["weights"].get(ticker, 0) * 100
+        weight_rows.append({
+            "Ticker":          ticker,
+            "Current weight":  f"{cur:.1f}%",
+            "Suggested weight": f"{opt:.1f}%",
+            "Change":          f"{opt - cur:+.1f}%",
+        })
+    st.dataframe(
+        pd.DataFrame(weight_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # Auto-commentary
+    if vol_delta < -1:
+        st.success(
+            f"The {opt_label.lower()} portfolio reduces annualised volatility by "
+            f"{abs(vol_delta):.2f} percentage points while "
+            f"{'maintaining similar' if abs(return_delta) < 2 else 'changing'} expected returns."
+        )
+    if sharpe_delta is not None and sharpe_delta > 0.1:
+        st.success(
+            f"Sharpe ratio improves by {sharpe_delta:.2f} — this allocation "
+            f"delivers more return per unit of risk than the current portfolio."
+        )
+
+    biggest_change = max(weight_rows, key=lambda r: abs(
+        float(r["Change"].replace("%", "").replace("+", ""))
+    ))
+    st.info(
+        f"Largest suggested change: {biggest_change['Ticker']} moves from "
+        f"{biggest_change['Current weight']} to {biggest_change['Suggested weight']}."
     )
