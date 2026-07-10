@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -97,6 +99,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+from analytics.ai_advisor import generate_risk_commentary, build_metrics_payload
+
 #css part
 st.markdown("""
 <style>
@@ -145,7 +149,7 @@ def fmt_inr(v: float) -> str:
 
 with st.sidebar:
     st.title("Risk Dashboard")
-    st.caption("Phase 1 — Portfolio Analysis")
+    st.caption("final version")
     st.divider()
 
     st.markdown("**Portfolio** one per line: `TICKER WEIGHT%`")
@@ -314,10 +318,31 @@ b3.metric("Final value", fmt_inr(port_value.iloc[-1]),
 
 st.divider()
 
+# for ai use
+from analytics.drawdown import max_drawdown, avg_drawdown_duration
+from analytics.correlation import average_pairwise_correlation, risk_contribution
+
+_mdd          = max_drawdown(port_ret)
+_avg_dd_dur   = avg_drawdown_duration(port_ret)
+_avg_corr     = average_pairwise_correlation(daily_ret)
+_risk_contrib = risk_contribution(daily_ret, weights)
+
+_beta_val  = None
+_alpha_val = None
+_corr_val  = None
+if bench_ticker and bench_ticker in prices_all.columns:
+    _mkt_ret   = prices_all[[bench_ticker]].pct_change().dropna()[bench_ticker]
+    _beta_val  = compute_beta(port_ret, _mkt_ret)
+    _alpha_val = compute_alpha(port_ret, _mkt_ret, risk_free)
+    _corr_val  = compute_correlation(port_ret, _mkt_ret)
+
+from analytics.var import var_summary as _var_summary
+_vd = _var_summary(port_ret, confidence=0.95, horizon=1, simulations=5_000)
 
 #tabs
-tab1, tab2, tab3, tab4,tab5, tab6,tab7, tab8,tab9 = st.tabs(
-    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR","Correlation","Stress Test","Optimization"]
+tab1, tab2, tab3, tab4,tab5, tab6,tab7, tab8,tab9,tab10 = st.tabs(
+    ["Performance", "Distribution", "Calendar", "Holdings","Risk Metrics","VaR and CVaR","Correlation","Stress Test","Optimization",
+     "AI Advisor"]
 )
 
 
@@ -867,14 +892,14 @@ with tab9:
     st.markdown("**Position constraints**")
     col_a, col_b = st.columns(2)
     with col_a:
-        max_weight = st.slider(
+        max_wt = st.slider(
             "Maximum weight per stock (%)",
             min_value=20, max_value=100,
             value=40, step=5,
             help="No single stock will exceed this. 40% is a common real-world limit.",
         ) / 100
     with col_b:
-        min_weight = st.slider(
+        min_wt = st.slider(
             "Minimum weight per stock (%)",
             min_value=0, max_value=20,
             value=5, step=1,
@@ -894,18 +919,18 @@ with tab9:
 
     # Feasibility check 
     n_stocks = len(port_tickers)
-    if min_weight * n_stocks > 1.0:
+    if min_wt * n_stocks > 1.0:
         st.error(
-            f"Minimum weight of {min_weight:.0%} across {n_stocks} stocks "
-            f"sums to {min_weight * n_stocks:.0%} which exceeds 100%. "
+            f"Minimum weight of {min_wt:.0%} across {n_stocks} stocks "
+            f"sums to {min_wt * n_stocks:.0%} which exceeds 100%. "
             f"Reduce the minimum weight."
         )
         st.stop()
 
-    if max_weight * n_stocks < 1.0:
+    if max_wt * n_stocks < 1.0:
         st.error(
-            f"Maximum weight of {max_weight:.0%} across {n_stocks} stocks "
-            f"sums to {max_weight * n_stocks:.0%} which is below 100%. "
+            f"Maximum weight of {max_wt:.0%} across {n_stocks} stocks "
+            f"sums to {max_wt * n_stocks:.0%} which is below 100%. "
             f"Increase the maximum weight."
         )
         st.stop()
@@ -921,13 +946,13 @@ with tab9:
         with st.spinner("Solving optimization..."):
             if opt_strategy == "Maximum Sharpe ratio":
                 opt_result = maximum_sharpe_portfolio(
-                    daily_ret[port_tickers], risk_free, max_weight, min_weight
+                    daily_ret[port_tickers], risk_free, max_wt, min_wt
                 )
                 opt_label = "Max Sharpe"
 
             elif opt_strategy == "Minimum variance":
                 opt_result = minimum_variance_portfolio(
-                    daily_ret[port_tickers], max_weight, min_weight
+                    daily_ret[port_tickers], max_wt, min_wt
                 )
                 opt_result["sharpe"] = (
                     (opt_result["return"] - risk_free) / opt_result["volatility"]
@@ -937,7 +962,7 @@ with tab9:
 
             else:
                 opt_result = target_return_portfolio(
-                    daily_ret[port_tickers], target, max_weight, min_weight
+                    daily_ret[port_tickers], target, max_wt, min_wt
                 )
                 opt_result["sharpe"] = (
                     (opt_result["return"] - risk_free) / opt_result["volatility"]
@@ -983,18 +1008,18 @@ with tab9:
     with st.spinner("Computing efficient frontier..."):
         frontier_df = efficient_frontier(
             daily_ret[port_tickers], n_points=40,
-            max_weight=max_weight, min_weight=min_weight,
+            max_wt=max_wt, min_wt=min_wt,
         )
-        random_df = random_portfolios(
+        random_df = random_portfolio(
             daily_ret[port_tickers], n_portfolios=1500,
-            max_weight=max_weight,
+            max_wt=max_wt,
         )
         current_portfolio_pt = {"return": ann_ret, "volatility": ann_vol}
         min_var_pt  = minimum_variance_portfolio(
-            daily_ret[port_tickers], max_weight, min_weight
+            daily_ret[port_tickers], max_wt, min_wt
         )
         max_shrp_pt = maximum_sharpe_portfolio(
-            daily_ret[port_tickers], risk_free, max_weight, min_weight
+            daily_ret[port_tickers], risk_free, max_wt, min_wt
         )
 
     st.plotly_chart(
@@ -1055,10 +1080,89 @@ with tab9:
     st.info(
         f"Largest suggested change: {biggest_change['Ticker']} moves from "
         f"{biggest_change['Current weight']} to {biggest_change['Suggested weight']}. "
-        f"Max weight per stock is capped at {max_weight:.0%}."
+        f"Max weight per stock is capped at {max_wt:.0%}."
     )
 
     st.caption(
-        f"Constraints: min {min_weight:.0%} per stock, max {max_weight:.0%} per stock. "
+        f"Constraints: min {min_wt:.0%} per stock, max {max_wt:.0%} per stock. "
         f"Adjust the sliders above to explore different constraint regimes."
     )
+
+# tab 10
+
+with tab10:
+    st.markdown("### AI Risk Advisor")
+    st.caption(
+        "Using Google Gemini API "
+        "Interprets your portfolio metrics in plain English."
+    )
+
+    # Check key exists before showing the button
+    try:
+        key_present = bool(st.secrets.get("GEMINI_API_KEY"))
+    except Exception:
+        key_present = False
+
+    if not key_present:
+        key_present = bool(os.environ.get("GEMINI_API_KEY"))
+
+    # Show the payload so the user can see what's being sent
+    with st.expander("View data being analysed"):
+        payload = build_metrics_payload(
+            summary=summary,
+            ann_vol=ann_vol,
+            sharpe=sharpe,
+            sortino=sortino,
+            mdd=_mdd,
+            avg_dd_dur=_avg_dd_dur,
+            risk_contrib=_risk_contrib,
+            beta_val=_beta_val,
+            alpha_val=_alpha_val,
+            corr_val=_corr_val,
+            var_dict=_vd,
+            avg_corr=_avg_corr,
+            weights=norm_w,
+            bench_label=bench_label,
+        )
+        st.json(payload)
+
+    if st.button("Generate risk insights", type="primary"):
+        with st.spinner("Analysing portfolio..."):
+            result = generate_risk_commentary(payload)
+
+        if result["status"] == "ok":
+            st.session_state["ai_commentary"] = result["text"]
+            st.session_state["ai_payload_snapshot"] = payload.copy()
+
+        elif result["status"] == "error":
+            st.error(f"Gemini API error: {result['text']}")
+
+    # Render cached commentary if it exists
+    if "ai_commentary" in st.session_state:
+        st.divider()
+        st.markdown("**Risk observations**")
+
+        # Render each bullet on its own line cleanly
+        lines = [
+            line.strip()
+            for line in st.session_state["ai_commentary"].splitlines()
+            if line.strip()
+        ]
+        for line in lines:
+            st.markdown(line)
+
+        st.divider()
+        st.caption(
+            "Generated by Gemini 3.1 Flash Lite based on historical data only. "
+            "Not financial advice."
+        )
+
+        if st.button("Clear and regenerate"):
+            del st.session_state["ai_commentary"]
+            st.rerun()
+
+    else:
+        st.info(
+            "Click **Generate risk insights** to get an AI-powered "
+            "breakdown of this portfolio's risk profile."
+        )
