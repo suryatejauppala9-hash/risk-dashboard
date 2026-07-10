@@ -262,6 +262,10 @@ else:
 
 # Core calculations
 daily_ret  = compute_daily_returns(prices)
+if daily_ret.empty:
+    st.error("No overlapping daily returns data available. This can happen if your tickers have no overlapping trading dates, or if one of the assets has no data for the selected lookback period.")
+    st.stop()
+
 port_ret   = compute_portfolio_returns(daily_ret, weights)
 cum_ret    = compute_cumulative_returns(port_ret)
 port_value = cum_ret * initial_investment

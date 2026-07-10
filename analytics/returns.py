@@ -18,7 +18,11 @@ def fetch_prices(tickers: list[str],period: str ="5y") ->pd.DataFrame:
     else:
         prices=raw[["Close"]].rename(columns={"Close":tickers[0]})
 
-    prices=prices.dropna(how="all")
+    # Drop columns that are completely NaN (failed downloads)
+    prices=prices.dropna(axis=1, how="all")
+
+    if prices.empty or len(prices.columns) == 0:
+        raise ValueError(f"No valid historical data found for {tickers}")
 
     missing=[t for t in tickers if t not in prices.columns]
     if missing:
