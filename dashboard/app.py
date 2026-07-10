@@ -250,6 +250,14 @@ with st.spinner("Fetching market data from Yahoo Finance…"):
 
 # Split portfolio vs benchmark
 port_tickers = [t for t in tickers if t in prices_all.columns]
+if not port_tickers:
+    st.error(f"None of your portfolio tickers ({tickers}) could be downloaded. Please verify the tickers are correct, or try again later (Yahoo Finance may be rate-limiting the server).")
+    st.stop()
+
+failed_tickers = [t for t in tickers if t not in prices_all.columns]
+if failed_tickers:
+    st.warning(f"Failed to download data for: {failed_tickers}. Proceeding with the remaining assets: {port_tickers}.")
+
 prices       = prices_all[port_tickers]
 
 bench_cum = None
