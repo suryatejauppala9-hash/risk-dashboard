@@ -24,6 +24,11 @@ def fetch_prices(tickers: list[str],period: str ="5y") ->pd.DataFrame:
     if prices.empty or len(prices.columns) == 0:
         raise ValueError(f"No valid historical data found for {tickers}")
 
+    # Ensure index is timezone-naive DatetimeIndex to prevent alignment issues
+    prices.index = pd.to_datetime(prices.index)
+    if prices.index.tz is not None:
+        prices.index = prices.index.tz_localize(None)
+
     missing=[t for t in tickers if t not in prices.columns]
     if missing:
         print(f"no data for {missing}-skipping")
