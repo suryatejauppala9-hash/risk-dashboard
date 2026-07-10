@@ -165,8 +165,8 @@ with st.sidebar:
     st.markdown("**Settings**")
     period = st.select_slider(
         "Lookback period",
-        options=["1y", "2y", "3y", "5y", "10y"],
-        value="5y",
+        options=["1y", "2y", "3y", "10y"],
+        value="3y",
     )
     risk_free = st.number_input(
         "Risk-free rate (%)",
