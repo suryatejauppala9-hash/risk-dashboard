@@ -51,7 +51,7 @@ def rolling_sortino(
     def _sortino(x):
         excess   = x - daily_rf
         ann_ret  = excess.mean() * TRADING_DAYS
-        diff     = x - 0.0
+        diff     = x - daily_rf
         downside = np.minimum(diff, 0.0)
         dd = np.sqrt(np.mean(downside**2)) * np.sqrt(TRADING_DAYS)
         if dd == 0:
