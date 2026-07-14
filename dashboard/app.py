@@ -33,6 +33,7 @@ from analytics.volatility import (
     rolling_volatility,
     sortino_ratio,
     rolling_sharpe,
+    downside_deviation,
 )
 from analytics.drawdown import (
     compute_drawdown_series,
@@ -258,6 +259,7 @@ failed_tickers = [t for t in tickers if t not in prices_all.columns]
 if failed_tickers:
     st.warning(f"Failed to download data for: {failed_tickers}. Proceeding with the remaining assets: {port_tickers}.")
 
+prices_all = prices_all.dropna()
 prices       = prices_all[port_tickers]
 
 bench_cum = None
@@ -283,7 +285,7 @@ ann_ret = summary["annualised_return"]
 ann_vol = summary["annualised_vol"]
 sharpe  = summary["sharpe"]
 
-downside     = port_ret[port_ret < 0].std() * np.sqrt(252)
+downside     = downside_deviation(port_ret)
 sortino      = (ann_ret - risk_free) / downside if downside > 0 else 0.0
 alpha        = ann_ret - bench_ann if bench_ann is not None else None
 bench_label = benchmark if bench_ticker else "Benchmark"

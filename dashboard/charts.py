@@ -11,6 +11,9 @@ GRID_COLOR      = "rgba(128,128,128,0.12)"
 TICKER_COLORS   = [
     "#6366f1", "#f59e0b", "#10b981", "#ef4444",
     "#3b82f6", "#ec4899", "#8b5cf6", "#14b8a6",
+    "#f97316", "#06b6d4", "#84cc16", "#d946ef",
+    "#eab308", "#22c55e", "#0ea5e9", "#c026d3",
+    "#64748b", "#a855f7", "#f43f5e", "#059669",
 ]
 
 _BASE = dict(
@@ -651,6 +654,9 @@ def chart_var_over_time(
 # phase 4
 
 def chart_correlation_heatmap(corr_matrix: pd.DataFrame) -> go.Figure:
+    if len(corr_matrix.columns) < 2:
+        return go.Figure()
+    
     tickers = list(corr_matrix.columns)
     z       = corr_matrix.values
     text    = [[f"{v:.2f}" for v in row] for row in z]

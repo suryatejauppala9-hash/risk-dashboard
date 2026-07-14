@@ -33,10 +33,10 @@ def fetch_prices(tickers: list[str],period: str ="5y") ->pd.DataFrame:
     if missing:
         print(f"no data for {missing}-skipping")
 
-    return prices
+    return prices.ffill()
 
 def compute_daily_returns(prices: pd.DataFrame)->pd.DataFrame:
-    return prices.pct_change().dropna()
+    return prices.pct_change().clip(lower=-0.90).dropna()
 
 def compute_portfolio_returns(daily_returns: pd.DataFrame,weights: dict[str,float])->pd.Series:
     w=pd.Series(weights).reindex(daily_returns.columns).fillna(0.0)

@@ -134,8 +134,8 @@ def target_return_portfolio(
     if weights is None:
         raise ValueError(
             f"Target return {target_return:.2%} is not achievable with this asset set."
-            f"current constraints (max {max_weight:.0%} per stock, "
-            f"min {min_weight:.0%} per stock)."
+            f"current constraints (max {max_wt:.0%} per stock, "
+            f"min {min_wt:.0%} per stock)."
         )
     weights = weights / weights.sum()
 
