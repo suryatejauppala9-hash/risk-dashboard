@@ -77,11 +77,21 @@ BROAD_MARKET        = {"SPY","QQQ","VTI","IVV","VOO","^NSEI","^BSESN"}
 
 
 def classify_ticker(ticker: str) -> str:
-    t = ticker.upper()
-    if t in TECH_TICKERS:        return "tech"
-    if t in FINANCIAL_TICKERS:   return "financials"
-    if t in ENERGY_TICKERS:      return "energy"
-    if t in BROAD_MARKET:        return "market"
+    t = ticker.upper().split(".")[0]
+    in_tech = {"TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTIM", "KPIT", "COFORGE", "TATAELXSI"}
+    in_fin = {"HDFCBANK", "ICICIBANK", "SBIN", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "BAJFINANCE", "BAJAJFINSV", "LICHSGFIN", "HDFC"}
+    in_energy = {"RELIANCE", "ONGC", "NTPC", "POWERGRID", "BPCL", "IOC", "HPCL", "GAIL", "COALINDIA", "ADANIGREEN", "ADANITRANS"}
+    in_market = {"NIFTYBEES", "JUNIORBEES", "SETFNIF50", "MOM100", "NIFTY", "SENSEX"}
+
+    raw_t = ticker.upper()
+    if raw_t in TECH_TICKERS or t in in_tech:
+        return "tech"
+    if raw_t in FINANCIAL_TICKERS or t in in_fin:
+        return "financials"
+    if raw_t in ENERGY_TICKERS or t in in_energy:
+        return "energy"
+    if raw_t in BROAD_MARKET or t in in_market or "BEES" in raw_t or "NIFTY" in raw_t or "SENSEX" in raw_t:
+        return "market"
     return "default"
 
 

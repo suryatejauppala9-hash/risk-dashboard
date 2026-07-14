@@ -89,6 +89,7 @@ from analytics.optimization import (
     target_return_portfolio,
     efficient_frontier,
     random_portfolio,
+    max_achievable_return,
 )
 from dashboard.charts import (
     chart_efficient_frontier,
@@ -474,7 +475,7 @@ with tab5:
     if has_bench:
         mkt_ret=prices_all[[bench_ticker]].pct_change().dropna()[bench_ticker]
         beta_val=compute_beta(port_ret,mkt_ret)
-        alpha_val=compute_alpha(port_ret,mkt_ret)
+        alpha_val=compute_alpha(port_ret,mkt_ret,risk_free_rate=risk_free)
         corr_val=compute_correlation(port_ret,mkt_ret)
         r2_val=r_squared(port_ret,mkt_ret)
     else:
@@ -595,7 +596,8 @@ with tab6:
         vd = var_summary(port_ret, confidence, horizon, n_sims)
 
     # cards
-    st.markdown("**Value at Risk** — maximum expected daily loss at selected confidence")
+    horizon_label = "daily" if horizon == 1 else f"{horizon}-day"
+    st.markdown(f"**Value at Risk** — maximum expected {horizon_label} loss at selected confidence")
     v1, v2, v3 = st.columns(3)
     v1.metric("Historical VaR",   f"-{vd['historical_var']*100:.3f}%",
               delta=f"-{fmt_inr(vd['historical_var']*initial_investment)}",
@@ -613,7 +615,7 @@ with tab6:
     st.divider()
 
     # cards cvar
-    st.markdown("**Expected Shortfall (CVaR)** — average loss when VaR is breached")
+    st.markdown(f"**Expected Shortfall (CVaR)** — average {horizon_label} loss when VaR is breached")
     c1, c2, c3 = st.columns(3)
     c1.metric("Historical CVaR",  f"-{vd['historical_cvar']*100:.3f}%",
               delta=f"-{fmt_inr(vd['historical_cvar']*initial_investment)}",
@@ -922,11 +924,13 @@ with tab9:
 
     target = None
     if opt_strategy == "Target return":
+        max_ach_pct = max_achievable_return(daily_ret[port_tickers], max_wt, min_wt) * 100
+        val_pct = float(max(1.0, ann_ret * 100))
         target = st.slider(
             "Target annual return (%)",
             min_value=0.0,
-            max_value=float(min(60.0, daily_ret[port_tickers].mean().max() * 252 * 150)),
-            value=float(max(1.0, ann_ret * 100)),
+            max_value=float(min(60.0, max(val_pct + 0.5, max_ach_pct))),
+            value=val_pct,
             step=0.5,
             format="%.1f%%",
         ) / 100
@@ -1026,7 +1030,7 @@ with tab9:
         )
         random_df = random_portfolio(
             daily_ret[port_tickers], n_portfolios=1500,
-            max_wt=max_wt,
+            max_wt=max_wt, min_wt=min_wt,
         )
         current_portfolio_pt = {"return": ann_ret, "volatility": ann_vol}
         min_var_pt  = minimum_variance_portfolio(

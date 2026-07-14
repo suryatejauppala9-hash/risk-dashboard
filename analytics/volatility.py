@@ -22,10 +22,9 @@ def rolling_sharpe(
     return sharpe
 
 def downside_deviation(returns: pd.Series,threshold: float=0.0)->float:
-    downside=returns[returns<threshold]
-    if len(downside)==0:
-        return 0.0
-    return float(downside.std()*np.sqrt(TRADING_DAYS))
+    diff = returns - threshold
+    downside_diff = np.minimum(diff, 0.0)
+    return float(np.sqrt(np.mean(downside_diff**2)) * np.sqrt(TRADING_DAYS))
 
 def sortino_ratio(
     returns: pd.Series,
@@ -50,9 +49,10 @@ def rolling_sortino(
     def _sortino(x):
         excess   = x - daily_rf
         ann_ret  = excess.mean() * TRADING_DAYS
-        downside = x[x < 0]
-        dd = downside.std() * np.sqrt(TRADING_DAYS) if len(downside) > 1 else np.nan
-        if not dd or dd == 0:
+        diff     = x - 0.0
+        downside = np.minimum(diff, 0.0)
+        dd = np.sqrt(np.mean(downside**2)) * np.sqrt(TRADING_DAYS)
+        if dd == 0:
             return np.nan
         return ann_ret / dd
 

@@ -489,8 +489,10 @@ def chart_var_comparison(var_dict: dict, initial: float = 10_000) -> go.Figure:
     ))
 
     confidence_pct = int(var_dict["confidence"] * 100)
+    horizon_days = var_dict.get("horizon", 1)
+    horizon_str = "daily" if horizon_days == 1 else f"{horizon_days}d horizon"
     fig.update_layout(
-        **_layout(f"VaR vs CVaR — {confidence_pct}% confidence (daily)", 380,
+        **_layout(f"VaR vs CVaR — {confidence_pct}% confidence ({horizon_str})", 380,
                   extra=dict(barmode="group", showlegend=True)),
     )
     fig.update_xaxes(showgrid=False, zeroline=False)

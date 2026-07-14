@@ -81,43 +81,46 @@ def maximum_sharpe_portfolio(
     n=len(tickers)
     mu,cov=_annualised_mean_cov(returns)
 
-    min_ret=float(mu.min())
-    max_ret=float(mu.max())
+    y = cp.Variable(n)
+    k = cp.Variable()
+    risk = cp.quad_form(y, cov)
+    constraints = [
+        (mu - risk_free_rate) @ y == 1,
+        cp.sum(y) == k,
+        y >= k * min_wt,
+        y <= k * max_wt,
+        k >= 0,
+    ]
+    problem = cp.Problem(cp.Minimize(risk), constraints)
+    try:
+        problem.solve()
+    except Exception:
+        pass
 
-    target_returns=np.linspace(
-        max(min_ret,risk_free_rate+0.01),
-        max_ret*0.98,
-        150,
-    )
-    
-    best_sharpe=-np.inf
-    best_weights=None
-    best_ret=None
-    best_vol=None
+    if y.value is None or k.value is None or k.value <= 1e-6:
+        min_var = minimum_variance_portfolio(returns, max_wt, min_wt)
+        weights_arr = np.array([min_var["weights"][t] for t in tickers])
+        ret = float(mu @ weights_arr)
+        vol = float(np.sqrt(weights_arr @ cov @ weights_arr))
+        sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0.0
+        return {
+            "weights": min_var["weights"],
+            "return": ret,
+            "volatility": vol,
+            "sharpe": sharpe,
+        }
 
-    for target in target_returns:
-        w=_solve_target_return(mu,cov,target,n,max_wt,min_wt)
-        if w is None:
-            continue
-        w=w/w.sum()
-        ret=float(mu@w)
-        vol=float(np.sqrt(w@cov@w))
-        if vol==0:
-            continue
-        sharpe=(ret-risk_free_rate)/vol
-        if sharpe>best_sharpe:
-            best_sharpe=sharpe
-            best_weights=w
-            best_ret=ret
-            best_vol=vol
-    if best_weights is None:
-        raise ValueError("couldnt fine max sharpe")
-    
-    return{
-        "weights": dict(zip(tickers,best_weights)),
-        "return": best_ret,
-        "volatility": best_vol,
-        "sharpe": best_sharpe,
+    weights = np.clip(y.value / k.value, 0, None)
+    weights = weights / weights.sum()
+    ret = float(mu @ weights)
+    vol = float(np.sqrt(weights @ cov @ weights))
+    sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0.0
+
+    return {
+        "weights": dict(zip(tickers, weights)),
+        "return": ret,
+        "volatility": vol,
+        "sharpe": sharpe,
     }
 
 def target_return_portfolio(
@@ -182,6 +185,7 @@ def random_portfolio(
     returns:pd.DataFrame,
     n_portfolios: int=2000,
     max_wt:float=0.40,
+    min_wt:float=0.05,
     seed:int=42,
 )->pd.DataFrame:
     rng=np.random.default_rng(seed)
@@ -195,10 +199,31 @@ def random_portfolio(
         attempts+=1
         w=rng.random(n)
         w=w/w.sum()
-        if(w.max()>max_wt):
+        if w.max() > max_wt or w.min() < min_wt:
             continue
         ret=float(mu@w)
         vol=float(np.sqrt(w@cov@w))
         rows.append({"return":ret,"volatility":vol})
 
     return pd.DataFrame(rows)
+
+
+def max_achievable_return(
+    returns: pd.DataFrame,
+    max_wt: float=0.40,
+    min_wt: float=0.05,
+) -> float:
+    tickers = list(returns.columns)
+    n = len(tickers)
+    mu, _ = _annualised_mean_cov(returns)
+    w = cp.Variable(n)
+    obj = cp.Maximize(mu @ w)
+    constraints = [cp.sum(w) == 1, w >= min_wt, w <= max_wt]
+    prob = cp.Problem(obj, constraints)
+    try:
+        prob.solve()
+        if w.value is not None:
+            return float(mu @ w.value)
+    except Exception:
+        pass
+    return float(mu.max())
