@@ -32,8 +32,10 @@ def sortino_ratio(
 ) -> float:
     """Scalar Sortino ratio for the metric card."""
     from analytics.returns import annualised_return
-    ann_r = annualised_return(returns)
-    dd    = downside_deviation(returns, threshold=0.0)
+    ann_r    = annualised_return(returns)
+    # Use the daily equivalent of the risk-free rate as the MAR (minimum acceptable return)
+    daily_rf = (1 + risk_free_rate) ** (1 / TRADING_DAYS) - 1
+    dd       = downside_deviation(returns, threshold=daily_rf)
     if dd == 0:
         return 0.0
     return float((ann_r - risk_free_rate) / dd)

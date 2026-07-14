@@ -286,7 +286,8 @@ ann_ret = summary["annualised_return"]
 ann_vol = summary["annualised_vol"]
 sharpe  = summary["sharpe"]
 
-downside     = downside_deviation(port_ret)
+_daily_rf    = (1 + risk_free) ** (1 / 252) - 1
+downside     = downside_deviation(port_ret, threshold=_daily_rf)
 sortino      = (ann_ret - risk_free) / downside if downside > 0 else 0.0
 alpha        = ann_ret - bench_ann if bench_ann is not None else None
 bench_label = benchmark if bench_ticker else "Benchmark"

@@ -38,11 +38,14 @@ def chart_cumulative_returns(
         bench_cum: pd.Series=None,
         bench_label: str="S&P 500",
 )->go.Figure:
-    fig=go.Figure()
+    # Prepend a t=0 anchor at 0% cumulative return (1 biz day before data starts)
+    t0 = port_cum.index[0] - pd.tseries.offsets.BDay(1)
+    pc_with_t0 = pd.concat([pd.Series([1.0], index=[t0]), port_cum])
 
+    fig=go.Figure()
     fig.add_trace(go.Scatter(
-        x=port_cum.index,
-        y=(port_cum-1)*100,
+        x=pc_with_t0.index,
+        y=(pc_with_t0-1)*100,
         mode="lines",
         name="Portfolio",
         line=dict(color=PORTFOLIO_COLOR,width=2.5),
@@ -52,9 +55,10 @@ def chart_cumulative_returns(
     ))
 
     if bench_cum is not None:
+        bc_with_t0 = pd.concat([pd.Series([1.0], index=[t0]), bench_cum])
         fig.add_trace(go.Scatter(
-            x=bench_cum.index,
-            y=(bench_cum-1)*100,
+            x=bc_with_t0.index,
+            y=(bc_with_t0-1)*100,
             mode="lines",
             name=bench_label,
             line=dict(color=BENCHMARK_COLOR,width=1.8,dash="dot"),
@@ -67,6 +71,7 @@ def chart_cumulative_returns(
     fig.update_yaxes(gridcolor=GRID_COLOR,zeroline=False,ticksuffix="%")
     return fig
 
+
 # port value
 
 def chart_portfolio_value(
@@ -75,10 +80,14 @@ def chart_portfolio_value(
     bench_label: str="S&P 500",
     initial: float=10_000,
 ) -> go.Figure:
+    # Prepend a t=0 anchor at exactly the initial investment (1 business day before first date)
+    t0 = port_value.index[0] - pd.tseries.offsets.BDay(1)
+    pv_with_t0 = pd.concat([pd.Series([initial], index=[t0]), port_value])
+
     fig=go.Figure()
     fig.add_trace(go.Scatter(
-        x=port_value.index,
-        y=port_value.values,
+        x=pv_with_t0.index,
+        y=pv_with_t0.values,
         mode="lines",
         name="Portfolio",
         line=dict(color=PORTFOLIO_COLOR,width=2.5),
@@ -88,10 +97,12 @@ def chart_portfolio_value(
     ))
 
     if bench_cum is not None:
-        bench_val=bench_cum*initial
+        bench_val = bench_cum * initial
+        # Prepend t=0 anchor for benchmark too
+        bv_with_t0 = pd.concat([pd.Series([initial], index=[t0]), bench_val])
         fig.add_trace(go.Scatter(
-            x=bench_val.index,
-            y=bench_val.values,
+            x=bv_with_t0.index,
+            y=bv_with_t0.values,
             mode="lines",
             name=bench_label,
             line=dict(color=BENCHMARK_COLOR,width=1.8,dash="dot"),
@@ -105,10 +116,11 @@ def chart_portfolio_value(
         annotation_text=f"Rs. {initial:,.0f} invested",
         annotation_position="bottom right",
     )
-    fig.update_layout(**_layout(f"Portfolio value(Rs. {initial:,.0f} invested)",360))
+    fig.update_layout(**_layout(f"Portfolio value (Rs. {initial:,.0f} invested)", 360))
     fig.update_xaxes(showgrid=False,zeroline=False)
     fig.update_yaxes(gridcolor=GRID_COLOR,zeroline=False,tickprefix="Rs. ",tickformat=",.0f")
     return fig
+
 
 
 # daily returns bar

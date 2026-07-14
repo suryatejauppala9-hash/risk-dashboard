@@ -105,24 +105,25 @@ def var_summary(
     horizon: int=1,
     simulations: int =10_000,
 )->dict:
+    # 1-day base estimates
     h_var  = historical_var(returns, confidence)
     p_var  = parametric_var(returns, confidence)
-    mc_var = monte_carlo_var(returns, confidence, simulations, horizon)
-
     h_cvar  = historical_cvar(returns, confidence)
     p_cvar  = parametric_cvar(returns, confidence)
+
+    # MC methods simulate the full horizon directly (compound returns over `horizon` days)
+    # so no additional sqrt(horizon) scaling is needed for MC.
+    # Historical and parametric use the standard sqrt(horizon) square-root-of-time rule.
+    mc_var  = monte_carlo_var(returns, confidence, simulations, horizon)
     mc_cvar = monte_carlo_cvar(returns, confidence, simulations, horizon)
 
-    return{
-        "confidence": confidence,
-        "horizon": horizon,
-        "historical_var":h_var * np.sqrt(horizon),
-        "parametric_var":p_var * np.sqrt(horizon),
-        "montecarlo_var":mc_var,
-        "historical_cvar":h_cvar * np.sqrt(horizon),
-        "parametric_cvar":p_cvar * np.sqrt(horizon),
-        "montecarlo_cvar":mc_cvar,
-        "historical_var_scaled":  h_var * np.sqrt(horizon),
-        "parametric_var_scaled":  p_var * np.sqrt(horizon),
-        "montecarlo_var_scaled":  mc_var,
+    return {
+        "confidence":       confidence,
+        "horizon":          horizon,
+        "historical_var":   h_var  * np.sqrt(horizon),
+        "parametric_var":   p_var  * np.sqrt(horizon),
+        "montecarlo_var":   mc_var,
+        "historical_cvar":  h_cvar * np.sqrt(horizon),
+        "parametric_cvar":  p_cvar * np.sqrt(horizon),
+        "montecarlo_cvar":  mc_cvar,
     }
